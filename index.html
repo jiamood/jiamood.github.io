@@ -193,14 +193,14 @@
 
 <script>
 // ===== 월령별 가이드표 (설계도 §② Level 0) =====
-// naps=기본 낮잠횟수, feeds=수유횟수, napMin=총낮잠(분), maxWW=깨시 상한(분)
+// napMinC~napMaxC=낮잠 횟수 범위, feeds=수유횟수, napMin=총낮잠(분), cap=깨시 상한(분)
 const GUIDE = {
-  0:{naps:4,feeds:8,napMin:420,maxWW:60},  1:{naps:4,feeds:8,napMin:420,maxWW:60},
-  2:{naps:4,feeds:7,napMin:420,maxWW:60},  3:{naps:4,feeds:6,napMin:330,maxWW:75},
-  4:{naps:4,feeds:5,napMin:240,maxWW:90},  5:{naps:4,feeds:5,napMin:240,maxWW:129},
-  6:{naps:3,feeds:5,napMin:210,maxWW:150}, 7:{naps:3,feeds:5,napMin:195,maxWW:165},
-  8:{naps:3,feeds:4,napMin:195,maxWW:180}, 9:{naps:2,feeds:4,napMin:180,maxWW:210},
-  10:{naps:2,feeds:4,napMin:180,maxWW:240},11:{naps:2,feeds:4,napMin:180,maxWW:240}
+  0:{napMinC:4,napMaxC:5,feeds:8,napMin:420,cap:70},  1:{napMinC:4,napMaxC:5,feeds:8,napMin:420,cap:70},
+  2:{napMinC:4,napMaxC:5,feeds:7,napMin:420,cap:70},  3:{napMinC:4,napMaxC:5,feeds:6,napMin:330,cap:90},
+  4:{napMinC:3,napMaxC:4,feeds:5,napMin:240,cap:120}, 5:{napMinC:3,napMaxC:4,feeds:5,napMin:240,cap:129},
+  6:{napMinC:2,napMaxC:3,feeds:5,napMin:210,cap:150}, 7:{napMinC:2,napMaxC:3,feeds:5,napMin:195,cap:165},
+  8:{napMinC:2,napMaxC:3,feeds:4,napMin:195,cap:180}, 9:{napMinC:2,napMaxC:2,feeds:4,napMin:180,cap:210},
+  10:{napMinC:2,napMaxC:2,feeds:4,napMin:180,cap:240},11:{napMinC:2,napMaxC:2,feeds:4,napMin:180,cap:240}
 };
 const MIN_LAST_WW = 120; // 막수 전 2시간 깨시(절대불변)
 
@@ -226,8 +226,8 @@ function makeState(){
   // 밤잠 입면은 첫수보다 늦은 저녁이어야 함(자정 넘어가면 +24h 취급)
   if(bed <= wake) bed += 1440;
   return { month:m, wake, bed, maksu:bed-gap, maksuGap:gap,
-           feeds:g.feeds, maxWW:g.maxWW, napCount:g.naps, napTotal:g.napMin,
-           napMinDefault:g.napMin };
+           feeds:g.feeds, maxWW:g.cap, napCount:g.napMaxC, napTotal:g.napMin,
+           napMinDefault:g.napMin, napMinC:g.napMinC, napMaxC:g.napMaxC };
 }
 
 function compute(s){
@@ -260,9 +260,8 @@ function render(){
   $('napTotV').textContent = about(S.napTotal,30);
   $('lockInfo').innerHTML = `🔒 막수 ${fmt(S.maksu)} · 밤잠 ${fmt(S.bed)} <span style="font-weight:400;color:#9a8254;font-size:11.5px">— 잠가둬요</span>`;
 
-  // 낮잠 횟수 세그(가이드 ±1, 1~5 클램프)
-  const base = GUIDE[S.month].naps;
-  const opts = [...new Set([base+1, base, base-1])].filter(n=>n>=1&&n<=5).sort((a,b)=>b-a);
+  // 낮잠 횟수 세그 = 월령 가이드 범위 안에서만 (이상한 횟수 방지)
+  const opts = []; for(let n=S.napMaxC;n>=S.napMinC;n--) opts.push(n);
   $('napCountSeg').innerHTML = opts.map(n=>`<button data-n="${n}" class="${n===S.napCount?'on':''}">${n}회</button>`).join('');
   $('napCountSeg').querySelectorAll('button').forEach(b=> b.onclick=()=>{ S.napCount=+b.dataset.n; render(); });
 
@@ -271,14 +270,21 @@ function render(){
   slider.min = Math.max(60, S.napMinDefault-90); slider.max = S.napMinDefault+90; slider.step = 15;
   slider.value = S.napTotal;
 
-  // 경계선 안내(OK면 숨김)
+  // 경계선 안내(OK면 숨김). 깨시가 월령 상한보다 길 때만.
   const v = $('valid');
   if(r.maxEarlier > S.maxWW+1 || r.lastWW < MIN_LAST_WW-1){
     v.classList.remove('hide');
-    v.innerHTML = `<span class="ico">💡</span><div>이 아이는 <b>낮잠 ${S.napCount}번이 살짝 빠듯</b>해요.
-      막수 전에 <b>짧은 잠(캣냅)</b>이 한 번 더 필요할 수 있어요. 매일 힘들면 낮잠을 한 번 늘려요.
-      <span class="cta"><button id="addNap">낮잠 ${S.napCount+1}번으로 맞추기</button></span></div>`;
-    const a=$('addNap'); if(a) a.onclick=()=>{ S.napCount=Math.min(5,S.napCount+1); render(); };
+    if(S.napCount < S.napMaxC){
+      // 아직 낮잠 더 늘릴 여지가 있음(월령 범위 내) → 권유
+      v.innerHTML = `<span class="ico">💡</span><div>지금처럼 <b>낮잠 ${S.napCount}번</b>이면 깨어있는 구간이 좀 길어요.
+        막수 전에 <b>짧은 잠(캣냅)</b>이 한 번 더 필요할 수 있어요.
+        <span class="cta"><button id="addNap">낮잠 ${S.napCount+1}번으로 맞추기</button></span></div>`;
+      $('addNap').onclick=()=>{ S.napCount=S.napCount+1; render(); };
+    } else {
+      // 이미 이 월령 최대 낮잠 → 횟수 더 늘리지 말고 밤잠/캣냅으로
+      v.innerHTML = `<span class="ico">💡</span><div>깨어있는 구간이 조금 길어요. 이 월령엔 낮잠 ${S.napCount}번이 보통이라
+        횟수를 더 늘리기보단, <b>밤잠을 조금 일찍</b> 재우거나 아이가 졸려하면 <b>짧은 캣냅</b>으로 메워요.</div>`;
+    }
   } else v.classList.add('hide');
 
   // 타임라인
